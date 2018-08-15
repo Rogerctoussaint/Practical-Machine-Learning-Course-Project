@@ -1,0 +1,158 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Roger Toussaint"
+date: "August 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+The rise in wearable tech has created a great new source of data for analyzing human movement. Using data from wearable accelerometers, we were able to produce a model that could predict whether a dumb bell bicep curl was being performed correctly or not with great accuracy.
+
+### Data Source
+
+The data for this project was obtained from the following paper:
+
+'Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+## Data Preparation
+
+#### Loading the Data
+
+After loading the required packages, we will download the data from the internet and read it into R.
+
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 'pml-training.csv')
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 'pml-testing.csv')
+
+data <- read.csv('pml-training.csv')
+pred_test <- read.csv('pml-testing.csv')
+```
+
+#### Cleaning the Data
+
+Next we will perform multiple cleaning steps. First, we will remove the first 7 columns from the dataset, as these are ID variables and don't contain information that will help our model.
+
+```{r}
+data <- data[, -(1:7)]
+```
+
+Next, we split the data into training and test datasets.
+
+```{r, warning = FALSE}
+set.seed(369)
+inTrain <- createDataPartition(data$classe, p = 0.7, list = FALSE)
+training <- data[inTrain, ]
+testing <- data[-inTrain, ]
+```
+
+Next, using the `nearZeroVar()` function in the `caret` package, we will remove variables from the training and testing datasets with little to no variance in the training dataset. These variables contain very little information as there is little variation in their values, meaning they will not contribute much to our model.
+
+```{r warning = FALSE}
+zero_var_cols <- nearZeroVar(training)
+
+training <- training[ ,-(zero_var_cols)]
+testing <- testing[ ,-zero_var_cols]
+```
+
+Next, we will also remove any variables that have more than 80% missing values. Similar to variables with little variation, these columns do not contain a lot of useful information.
+
+```{r}
+na_cols <- NULL
+for(i in 1:ncol(training))
+{
+    if((sum(is.na(training[, i])) / nrow(training)) > 0.8)
+       na_cols <- c(na_cols, i)
+}
+
+training <- training[ , -(na_cols)]
+testing <- testing[ , -(na_cols)]
+```
+
+```{r}
+dim(training)
+dim(testing)
+```
+
+There are several other cleaning steps that we could perform such as looking for variables that are highly correlated and performing PCA, but we are satisfied stopping here. This step could have improved model performance, but as we see, our model performs very well with the data left in the current form. 
+
+## Modeling the Data
+
+We will fit three types of models: decision tree, random forest, and a gbm. We will fit each model using 5-fold cross validation on the training dataset to prevent overfitting. Then, we will calculate an out-of-sample error rate for each model using the holdout testing dataset, which will then be used to compare the models and determine which one offers the best fit. The following control statement will therefore be used in each model. With the random forest and gbm, we will simply use the default parameters for each one. Better performance could be obtained by tuning the parameters of these models using a grid search and other methods, but for the sake of this project, the default parameters will suffice.
+
+```{r, warning=FALSE, cache=TRUE}
+control <- trainControl(method = 'cv', number = 5)
+```
+
+#### Decision Tree
+
+First, we will try to fit a basic classification decision tree.
+
+```{r, warning=FALSE, cache=TRUE}
+set.seed(1000)
+dt_model <- train(classe ~ .,
+                  data = training,
+                  method = 'rpart',
+                  trControl = control)
+
+dt_pred <- predict(dt_model, testing)
+dt_matrix <- confusionMatrix(dt_pred, testing$classe)
+dt_matrix
+```
+
+We see that the decision tree is achieving an out-of-sample accuracy of `r toString(round(dt_matrix$overall[1] * 100, 2))`%.
+
+#### Random Forest
+
+Next, the random forest.
+
+```{r, warning=FALSE, cache=TRUE}
+set.seed(1000)
+rf_model <- train(classe ~ .,
+                  data = training,
+                  method = 'rf',
+                  trControl = control,
+                  verbose = FALSE)
+
+rf_pred <- predict(rf_model, testing)
+rf_matrix <- confusionMatrix(rf_pred, testing$classe)
+rf_matrix
+```
+
+We see that the random forest is achieving an out-of-sample accuracy of `r toString(round(rf_matrix$overall[1] * 100, 2))`%.
+
+#### GBM
+
+And finally, the GBM.
+
+```{r, warning=FALSE, cahce=TRUE}
+set.seed(1000)
+gbm_model <- train(classe ~ .,
+                   data = training,
+                   method = 'gbm',
+                   trControl = control,
+                   verbose = FALSE)
+
+gbm_pred <- predict(gbm_model, testing)
+gbm_matrix <- confusionMatrix(gbm_pred, testing$classe)
+gbm_matrix
+```
+
+We see that the random forest is achieving an out-of-sample accuracy of `r toString(round(gbm_matrix$overall[1] * 100, 2))`%.
+
+## Conclusion & Predictions
+
+With an out-of-sample accuracy of `r toString(round(rf_matrix$overall[1] * 100, 2))`%, the random forest model is the best performer. This is near perfect accuracy, and it is hard to imagine any tweaking of parameters or further cleaning of the data would provide any significant improvement. 
+
+Lastly, for the 20 test cases provided to test the model, we obtain the following predictions
+
+```{r, warning=FALSE, cache=TRUE}
+preds <- predict(rf_model, pred_test)
+preds
+```
